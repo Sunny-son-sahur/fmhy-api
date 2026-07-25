@@ -7,6 +7,7 @@ import subprocess
 import os
 import signal
 import json
+import yt_dlp
 from typing import Optional
 
 FMHY_API_URL = os.getenv("FMHY_API_URL", "https://fmhy-api.onrender.com")
@@ -39,6 +40,28 @@ def has_control_role():
         )
         return False
     return app_commands.check(predicate)
+
+def extract_video_url(url):
+    """Extract direct video URL using yt-dlp"""
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'format': 'best[height<=720]',
+        'extract_flat': False,
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if 'url' in info:
+                return info['url'], info.get('title', 'Unknown')
+            elif 'entries' in info:
+                for entry in info['entries']:
+                    if entry and 'url' in entry:
+                        return entry['url'], entry.get('title', 'Unknown')
+    except Exception as e:
+        print(f"yt-dlp error: {e}")
+        return None, None
 
 class Watch(commands.Cog):
     def __init__(self, bot):
@@ -117,6 +140,48 @@ class Watch(commands.Cog):
                 ephemeral=True
             )
     
+    @app_commands.command(name="play", description="Extract and play video from a URL")
+    @app_commands.describe(url="Streaming site URL to play from")
+    @has_control_role()
+    async def play(self, interaction: discord.Interaction, url: str):
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message(
+                "❌ You need to be in a voice channel!",
+                ephemeral=True
+            )
+            return
+        
+        voice_channel = interaction.user.voice.channel
+        
+        await interaction.response.defer()
+        
+        embed = discord.Embed(
+            title="🔍 Extracting video...",
+            description=f"Trying to extract video from:\n{url}",
+            color=discord.Color.yellow()
+        )
+        await interaction.followup.send(embed=embed)
+        
+        video_url, title = await asyncio.get_event_loop().run_in_executor(
+            None, extract_video_url, url
+        )
+        
+        if video_url:
+            embed = discord.Embed(
+                title=f"🎬 Playing: {title or 'Video'}",
+                description=f"**Channel:** {voice_channel.name}",
+                color=discord.Color.green()
+            )
+            await interaction.edit_original_response(embed=embed)
+            await self._start_stream(interaction, voice_channel, video_url)
+        else:
+            embed = discord.Embed(
+                title="❌ Couldn't extract video",
+                description="This site might not be supported by yt-dlp.\n\nTry a different URL or use `/watch` to share your screen.",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed)
+
     @app_commands.command(name="watch", description="Stream a movie/show in voice channel")
     @app_commands.describe(
         query="Search for a movie/show",
@@ -141,15 +206,28 @@ class Watch(commands.Cog):
         await interaction.response.defer()
         
         if url:
-            embed = discord.Embed(
-                title="🎬 Now Playing",
-                description=f"**URL:** {url}\n**Channel:** {voice_channel.name}",
-                color=discord.Color.blue()
+            # Try to extract direct video URL
+            video_url, title = await asyncio.get_event_loop().run_in_executor(
+                None, extract_video_url, url
             )
-            embed.set_footer(text="Bot will join voice channel and start streaming")
-            await interaction.followup.send(embed=embed)
             
-            await self._start_stream(interaction, voice_channel, url)
+            if video_url:
+                embed = discord.Embed(
+                    title=f"🎬 Playing: {title}",
+                    description=f"**Channel:** {voice_channel.name}",
+                    color=discord.Color.blue()
+                )
+                await interaction.followup.send(embed=embed)
+                await self._start_stream(interaction, voice_channel, video_url)
+            else:
+                # If extraction fails, just use the original URL
+                embed = discord.Embed(
+                    title="🎬 Opening Stream",
+                    description=f"**URL:** {url}\n**Channel:** {voice_channel.name}\n\n⚠️ Couldn't extract video directly. Open the URL in your browser and share your screen.",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed)
+                await self._start_stream(interaction, voice_channel, url)
             return
         
         if not query:
