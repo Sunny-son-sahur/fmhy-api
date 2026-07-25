@@ -1,0 +1,8 @@
+language = "python3"
+entrypoint = "bot.py"
+
+[env]
+FMHY_API_URL = "https://fmhy-api.onrender.com"
+
+[deployment]
+run = ["python", "bot.py"]
