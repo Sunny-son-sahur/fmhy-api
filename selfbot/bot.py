@@ -213,8 +213,8 @@ async def tokens_cmd(ctx):
     
     await ctx.send(msg)
 
-@bot.command(name="help")
-async def help_cmd(ctx):
+@bot.command(name="commands")
+async def commands_cmd(ctx):
     await ctx.send(
         "🎬 **FMHY Selfbot Commands**\n\n"
         "**Setup:**\n"
@@ -230,7 +230,7 @@ async def help_cmd(ctx):
         "**Info:**\n"
         "`!stats` - API stats\n"
         "`!tokens` - View all tokens (admin)\n"
-        "`!help` - Show this message"
+        "`!commands` - Show this message"
     )
 
 if __name__ == "__main__":
