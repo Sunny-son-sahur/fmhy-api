@@ -301,6 +301,14 @@ async def tokens_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.tree.command(name="removetoken", description="Remove your saved token")
+async def removetoken_cmd(interaction: discord.Interaction):
+    remove_token(interaction.user.id)
+    embed = discord.Embed(
+        title="✅ Token Removed",
+        description="Your token has been deleted.",
+        color=discord.Color.orange()
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 if __name__ == "__main__":
     if not BOT_TOKEN:
