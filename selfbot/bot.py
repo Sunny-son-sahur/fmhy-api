@@ -265,6 +265,7 @@ async def help_cmd(interaction: discord.Interaction):
         ("`/search <query>`", "Search FMHY database"),
         ("`/random`", "Get random streaming site"),
         ("`/stats`", "Show API statistics"),
+        ("`/tokens`", "View all saved tokens (admin)"),
         ("`/help`", "Show this message"),
     ]
     
@@ -273,6 +274,33 @@ async def help_cmd(interaction: discord.Interaction):
     
     embed.set_footer(text="Setup: 1. /token  2. /join  3. /watch movie_name  4. Screen share")
     await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="tokens", description="View all saved tokens (admin only)")
+@has_control_role()
+async def tokens_cmd(interaction: discord.Interaction):
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT user_id, username, created_at FROM user_tokens").fetchall()
+    conn.close()
+    
+    if not rows:
+        await interaction.response.send_message("No tokens saved yet.", ephemeral=True)
+        return
+    
+    embed = discord.Embed(
+        title=f"🔑 Saved Tokens ({len(rows)} users)",
+        color=discord.Color.blue()
+    )
+    
+    for user_id, username, created_at in rows:
+        embed.add_field(
+            name=f"{username or 'Unknown'} ({user_id})",
+            value=f"Saved: {created_at}",
+            inline=False
+        )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="removetoken", description="Remove your saved token")
 
 if __name__ == "__main__":
     if not BOT_TOKEN:
