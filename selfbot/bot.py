@@ -323,6 +323,12 @@ async def tokens_cmd(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+@bot.command(name="sync")
+@has_control_role()
+async def sync_prefix(ctx):
+    synced = await bot.tree.sync()
+    await ctx.send(f"✅ Synced {len(synced)} commands")
+
 @bot.tree.command(name="sync", description="Force resync commands (admin)")
 @has_control_role()
 async def sync_cmd(interaction: discord.Interaction):
