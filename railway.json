@@ -1,0 +1,15 @@
+{
+  "name": "fmhy-api",
+  "version": "1.0.0",
+  "description": "API for Free Media Heck Yeah",
+  "build": {
+    "builder": "nixpacks"
+  },
+  "deploy": {
+    "startCommand": "python3 main.py",
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 10,
+    "restartPolicyType": "on_failure",
+    "restartPolicyMaxRetries": 3
+  }
+}
