@@ -5,7 +5,8 @@
 # 1. Clone the FMHY wiki if not present
 # 2. Parse the wiki content
 # 3. Setup the database
-# 4. Start the API server
+# 4. Filter to streaming only
+# 5. Start the API server
 
 set -e
 
@@ -25,6 +26,16 @@ if [ ! -f "fmhy.db" ]; then
     echo "Setting up database..."
     python3 parser.py
     python3 database.py
+    echo "Filtering to streaming only..."
+    python3 -c "
+import sqlite3
+conn = sqlite3.connect('fmhy.db')
+conn.execute('DELETE FROM tags WHERE resource_id IN (SELECT id FROM resources WHERE category != \"Streaming\")')
+conn.execute('DELETE FROM resources WHERE category != \"Streaming\"')
+conn.commit()
+conn.close()
+print('Filtered to streaming resources only')
+"
 fi
 
 echo "Starting API server..."
