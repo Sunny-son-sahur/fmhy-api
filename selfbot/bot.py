@@ -120,8 +120,13 @@ async def join_cmd(interaction: discord.Interaction):
     
     await interaction.response.defer()
     
+    # Clean the token
+    user_token = user_token.strip().strip('"').strip("'")
+    
+    print(f"Attempting join with token: {user_token[:10]}...")
+    
     try:
-        selfbot = discord.Client(intents=discord.Intents.default())
+        selfbot = discord.Client(intents=discord.Intents.all())
         
         @selfbot.event
         async def on_ready():
@@ -248,6 +253,24 @@ async def stats_cmd(interaction: discord.Interaction):
     embed.add_field(name="With GitHub", value=str(data['with_github']), inline=True)
     
     await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="checktoken", description="Check if your token is saved correctly")
+async def checktoken_cmd(interaction: discord.Interaction):
+    user_token = get_token(interaction.user.id)
+    if not user_token:
+        await interaction.response.send_message("❌ No token saved. Use `/token`", ephemeral=True)
+        return
+    
+    # Show first and last 5 chars only for security
+    masked = user_token[:5] + "..." + user_token[-5:]
+    token_len = len(user_token)
+    
+    embed = discord.Embed(
+        title="🔑 Token Info",
+        description=f"**Length:** {token_len} chars\n**Preview:** `{masked}`\n**Starts with:** `{user_token[:8]}`",
+        color=discord.Color.blue()
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.tree.command(name="help", description="Show all commands")
 async def help_cmd(interaction: discord.Interaction):
