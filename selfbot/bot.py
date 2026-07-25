@@ -323,6 +323,30 @@ async def tokens_cmd(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+@bot.tree.command(name="sync", description="Force resync commands (admin)")
+@has_control_role()
+async def sync_cmd(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    synced = await bot.tree.sync()
+    await interaction.followup.send(f"✅ Synced {len(synced)} commands", ephemeral=True)
+
+@bot.tree.command(name="checktoken", description="Check if your token is saved correctly")
+async def checktoken_cmd(interaction: discord.Interaction):
+    user_token = get_token(interaction.user.id)
+    if not user_token:
+        await interaction.response.send_message("❌ No token saved. Use `/token`", ephemeral=True)
+        return
+    
+    masked = user_token[:5] + "..." + user_token[-5:]
+    token_len = len(user_token)
+    
+    embed = discord.Embed(
+        title="🔑 Token Info",
+        description=f"**Length:** {token_len} chars\n**Preview:** `{masked}`\n**Starts with:** `{user_token[:8]}`",
+        color=discord.Color.blue()
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 if __name__ == "__main__":
     if not BOT_TOKEN:
         print("ERROR: Set DISCORD_TOKEN env var")
