@@ -46,151 +46,90 @@ def remove_token(user_id):
     conn.commit()
     conn.close()
 
-def has_control_role():
-    async def predicate(interaction: discord.Interaction):
-        user_roles = [str(role.id) for role in interaction.user.roles]
-        user_roles.append(str(interaction.user.id))
-        for role_id in CONTROL_ROLES:
-            if role_id in user_roles:
-                return True
-        await interaction.response.send_message(
-            "❌ No permission!",
-            ephemeral=True
-        )
-        return False
-    return discord.app_commands.check(predicate)
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.voice_states = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", self_bot=True)
 
 @bot.event
 async def on_ready():
     init_db()
-    print(f"Bot logged in as {bot.user.name}")
+    print(f"Logged in as {bot.user.name} ({bot.user.id})")
     print(f"API: {FMHY_API_URL}")
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} commands")
-    except Exception as e:
-        print(f"Sync error: {e}")
 
-@bot.tree.command(name="token", description="Save your Discord user token for selfbot")
-@discord.app_commands.describe(token="Your Discord user token")
-async def token_cmd(interaction: discord.Interaction, token: str):
-    save_token(interaction.user.id, token, interaction.user.name)
-    embed = discord.Embed(
-        title="✅ Token Saved",
-        description="Your user token has been saved securely.\nYou can now use `/join` and `/watch` to stream as yourself.",
-        color=discord.Color.green()
-    )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+def is_control():
+    async def predicate(ctx):
+        if str(ctx.author.id) in CONTROL_ROLES:
+            return True
+        user_roles = [str(role.id) for role in ctx.author.roles]
+        for role_id in CONTROL_ROLES:
+            if role_id in user_roles:
+                return True
+        await ctx.send("❌ No permission!")
+        return False
+    return commands.check(predicate)
 
-@bot.tree.command(name="removetoken", description="Remove your saved token")
-async def removetoken_cmd(interaction: discord.Interaction):
-    remove_token(interaction.user.id)
-    embed = discord.Embed(
-        title="✅ Token Removed",
-        description="Your token has been deleted.",
-        color=discord.Color.orange()
-    )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+@bot.command(name="token")
+async def token_cmd(ctx, token: str):
+    save_token(ctx.author.id, token, ctx.author.name)
+    await ctx.send("✅ Token saved!")
 
-@bot.tree.command(name="join", description="Join voice channel as yourself")
-@has_control_role()
-async def join_cmd(interaction: discord.Interaction):
-    user_token = get_token(interaction.user.id)
+@bot.command(name="removetoken")
+async def removetoken_cmd(ctx):
+    remove_token(ctx.author.id)
+    await ctx.send("✅ Token removed!")
+
+@bot.command(name="checktoken")
+async def checktoken_cmd(ctx):
+    user_token = get_token(ctx.author.id)
     if not user_token:
-        await interaction.response.send_message(
-            "❌ You need to save your token first! Use `/token`",
-            ephemeral=True
-        )
+        await ctx.send("❌ No token saved. Use `!token YOUR_TOKEN`")
+        return
+    masked = user_token[:8] + "..." + user_token[-5:]
+    await ctx.send(f"🔑 Token: `{masked}` (length: {len(user_token)})")
+
+@bot.command(name="join")
+@is_control()
+async def join_cmd(ctx):
+    user_token = get_token(ctx.author.id)
+    if not user_token:
+        await ctx.send("❌ Save your token first! Use `!token YOUR_TOKEN`")
         return
     
-    if not interaction.user.voice or not interaction.user.voice.channel:
-        await interaction.response.send_message(
-            "❌ Join a voice channel first!",
-            ephemeral=True
-        )
+    if not ctx.author.voice or not ctx.author.voice.channel:
+        await ctx.send("❌ Join a voice channel first!")
         return
     
-    channel = interaction.user.voice.channel
-    
-    await interaction.response.defer()
-    
-    # Clean the token
-    user_token = user_token.strip().strip('"').strip("'")
-    
-    print(f"Attempting join with token: {user_token[:10]}...")
+    channel = ctx.author.voice.channel
+    await ctx.send(f"🔄 Joining **{channel.name}**...")
     
     try:
-        selfbot = discord.Client(intents=discord.Intents.all())
+        user_bot = commands.Bot(command_prefix="!", self_bot=True)
         
-        @selfbot.event
+        @user_bot.event
         async def on_ready():
-            print(f"Selfbot joined as {selfbot.user.name}")
+            print(f"Selfbot joined as {user_bot.user.name}")
             try:
                 vc = await channel.connect(self_mute=True, self_deaf=True)
-                embed = discord.Embed(
-                    title="✅ Joined Voice",
-                    description=f"Joined **{channel.name}** as yourself.\nYou can now screen share from this PC.",
-                    color=discord.Color.green()
-                )
-                await interaction.followup.send(embed=embed)
+                await ctx.send(f"✅ Joined **{channel.name}** as yourself!")
             except Exception as e:
-                await interaction.followup.send(f"❌ Failed: {e}")
+                await ctx.send(f"❌ Failed: {e}")
             finally:
-                await selfbot.close()
+                await user_bot.close()
         
-        asyncio.create_task(selfbot.start(user_token))
+        await user_bot.start(user_token)
     except Exception as e:
-        await interaction.followup.send(f"❌ Error: {e}")
+        await ctx.send(f"❌ Error: {e}")
 
-@bot.tree.command(name="search", description="Search FMHY for streaming sites")
-async def search_cmd(
-    interaction: discord.Interaction,
-    query: str,
-    category: Optional[str] = None
-):
-    await interaction.response.defer()
-    
-    async with aiohttp.ClientSession() as session:
-        params = {"q": query, "limit": 10, "recommended": "true"}
-        if category:
-            params["category"] = category
-        
-        async with session.get(f"{FMHY_API_URL}/api/search", params=params) as resp:
-            data = await resp.json()
-    
-    resources = data.get("resources", [])
-    if not resources:
-        await interaction.followup.send(f"❌ No results for **{query}**", ephemeral=True)
-        return
-    
-    embed = discord.Embed(
-        title=f"🔍 {query}",
-        color=discord.Color.blue()
-    )
-    
-    for i, r in enumerate(resources[:10], 1):
-        name = r.get('name', 'Unknown')
-        url = r.get('url', '#')
-        desc = r.get('description', '')[:60]
-        embed.add_field(
-            name=f"{i}. {name}",
-            value=f"{desc}\n[Open]({url})",
-            inline=False
-        )
-    
-    await interaction.followup.send(embed=embed)
+@bot.command(name="leave")
+@is_control()
+async def leave_cmd(ctx):
+    if ctx.voice_client:
+        await ctx.voice_client.disconnect()
+        await ctx.send("✅ Left voice channel!")
+    else:
+        await ctx.send("❌ Not in a voice channel!")
 
-@bot.tree.command(name="watch", description="Search for a movie/show and get links")
-@has_control_role()
-async def watch_cmd(interaction: discord.Interaction, query: str):
-    await interaction.response.defer()
-    
+@bot.command(name="watch")
+@is_control()
+async def watch_cmd(ctx, *, query: str):
     async with aiohttp.ClientSession() as session:
         params = {"q": query, "limit": 5, "recommended": "true"}
         async with session.get(f"{FMHY_API_URL}/api/search", params=params) as resp:
@@ -198,143 +137,101 @@ async def watch_cmd(interaction: discord.Interaction, query: str):
     
     resources = data.get("resources", [])
     if not resources:
-        await interaction.followup.send(f"❌ No results for **{query}**", ephemeral=True)
+        await ctx.send(f"❌ No results for **{query}**")
         return
     
-    embed = discord.Embed(
-        title=f"🎬 {query}",
-        description="Pick a site, find your movie, screen share in Discord!",
-        color=discord.Color.blue()
-    )
-    
+    msg = f"🎬 **{query}** - Pick a site:\n\n"
     for i, r in enumerate(resources[:5], 1):
         name = r.get('name', 'Unknown')
         url = r.get('url', '#')
-        desc = r.get('description', '')[:60]
-        embed.add_field(
-            name=f"{i}. {name}",
-            value=f"{desc}\n[Open]({url})",
-            inline=False
-        )
+        desc = r.get('description', '')[:50]
+        msg += f"**{i}. {name}**\n{desc}\n<{url}>\n\n"
     
-    embed.set_footer(text="Use /join first, then screen share from your PC")
-    await interaction.followup.send(embed=embed)
+    msg += "Open a link → Find your movie → Screen share in Discord!"
+    await ctx.send(msg)
 
-@bot.tree.command(name="random", description="Get a random streaming site")
-async def random_cmd(interaction: discord.Interaction):
-    await interaction.response.defer()
+@bot.command(name="search")
+async def search_cmd(ctx, *, query: str):
+    async with aiohttp.ClientSession() as session:
+        params = {"q": query, "limit": 10, "recommended": "true"}
+        async with session.get(f"{FMHY_API_URL}/api/search", params=params) as resp:
+            data = await resp.json()
     
+    resources = data.get("resources", [])
+    if not resources:
+        await ctx.send(f"❌ No results for **{query}**")
+        return
+    
+    msg = f"🔍 **{query}**\n\n"
+    for i, r in enumerate(resources[:5], 1):
+        name = r.get('name', 'Unknown')
+        url = r.get('url', '#')
+        desc = r.get('description', '')[:50]
+        msg += f"**{i}. {name}** - {desc}\n<{url}>\n\n"
+    
+    await ctx.send(msg)
+
+@bot.command(name="random")
+async def random_cmd(ctx):
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{FMHY_API_URL}/api/random") as resp:
             resource = await resp.json()
     
-    embed = discord.Embed(
-        title="🎲 Random Site",
-        color=discord.Color.purple()
-    )
+    name = resource.get('name', 'Unknown')
+    url = resource.get('url', '#')
+    desc = resource.get('description', '')[:100]
     
-    embed.add_field(name="Name", value=resource.get('name', 'Unknown'), inline=True)
-    embed.add_field(name="URL", value=f"[Open]({resource.get('url', '#')})", inline=True)
-    embed.add_field(name="Description", value=resource.get('description', '')[:200], inline=False)
-    
-    await interaction.followup.send(embed=embed)
+    await ctx.send(f"🎲 **{name}**\n{desc}\n<{url}>")
 
-@bot.tree.command(name="stats", description="Show API stats")
-async def stats_cmd(interaction: discord.Interaction):
-    await interaction.response.defer()
-    
+@bot.command(name="stats")
+async def stats_cmd(ctx):
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{FMHY_API_URL}/api/stats") as resp:
             data = await resp.json()
     
-    embed = discord.Embed(title="📊 API Stats", color=discord.Color.green())
-    embed.add_field(name="Resources", value=str(data['total_resources']), inline=True)
-    embed.add_field(name="With Discord", value=str(data['with_discord']), inline=True)
-    embed.add_field(name="With GitHub", value=str(data['with_github']), inline=True)
-    
-    await interaction.followup.send(embed=embed)
-
-@bot.tree.command(name="checktoken", description="Check if your token is saved correctly")
-async def checktoken_cmd(interaction: discord.Interaction):
-    user_token = get_token(interaction.user.id)
-    if not user_token:
-        await interaction.response.send_message("❌ No token saved. Use `/token`", ephemeral=True)
-        return
-    
-    # Show first and last 5 chars only for security
-    masked = user_token[:5] + "..." + user_token[-5:]
-    token_len = len(user_token)
-    
-    embed = discord.Embed(
-        title="🔑 Token Info",
-        description=f"**Length:** {token_len} chars\n**Preview:** `{masked}`\n**Starts with:** `{user_token[:8]}`",
-        color=discord.Color.blue()
+    await ctx.send(
+        f"📊 **API Stats**\n"
+        f"Resources: {data['total_resources']}\n"
+        f"With Discord: {data['with_discord']}\n"
+        f"With GitHub: {data['with_github']}"
     )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@bot.tree.command(name="help", description="Show all commands")
-async def help_cmd(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🎬 FMHY Selfbot Commands",
-        description="Commands for streaming movies with friends",
-        color=discord.Color.blue()
-    )
-    
-    commands_list = [
-        ("`/token`", "Save your Discord user token"),
-        ("`/removetoken`", "Remove your saved token"),
-        ("`/join`", "Join voice as yourself (for screen sharing)"),
-        ("`/watch <movie>`", "Find streaming sites for a movie"),
-        ("`/search <query>`", "Search FMHY database"),
-        ("`/random`", "Get random streaming site"),
-        ("`/stats`", "Show API statistics"),
-        ("`/tokens`", "View all saved tokens (admin)"),
-        ("`/help`", "Show this message"),
-    ]
-    
-    for name, desc in commands_list:
-        embed.add_field(name=name, value=desc, inline=False)
-    
-    embed.set_footer(text="Setup: 1. /token  2. /join  3. /watch movie_name  4. Screen share")
-    await interaction.followup.send(embed=embed)
-
-@bot.tree.command(name="tokens", description="View all saved tokens (admin only)")
-@has_control_role()
-async def tokens_cmd(interaction: discord.Interaction):
+@bot.command(name="tokens")
+@is_control()
+async def tokens_cmd(ctx):
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute("SELECT user_id, username, created_at FROM user_tokens").fetchall()
     conn.close()
     
     if not rows:
-        await interaction.response.send_message("No tokens saved yet.", ephemeral=True)
+        await ctx.send("No tokens saved yet.")
         return
     
-    embed = discord.Embed(
-        title=f"🔑 Saved Tokens ({len(rows)} users)",
-        color=discord.Color.blue()
-    )
-    
+    msg = f"🔑 **Saved Tokens** ({len(rows)} users)\n\n"
     for user_id, username, created_at in rows:
-        embed.add_field(
-            name=f"{username or 'Unknown'} ({user_id})",
-            value=f"Saved: {created_at}",
-            inline=False
-        )
+        msg += f"**{username or 'Unknown'}** ({user_id}) - {created_at}\n"
     
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await ctx.send(msg)
 
-@bot.command(name="sync")
-@has_control_role()
-async def sync_prefix(ctx):
-    synced = await bot.tree.sync()
-    await ctx.send(f"✅ Synced {len(synced)} commands")
-
-@bot.tree.command(name="sync", description="Force resync commands (admin)")
-@has_control_role()
-async def sync_cmd(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    synced = await bot.tree.sync()
-    await interaction.followup.send(f"✅ Synced {len(synced)} commands", ephemeral=True)
+@bot.command(name="help")
+async def help_cmd(ctx):
+    await ctx.send(
+        "🎬 **FMHY Selfbot Commands**\n\n"
+        "**Setup:**\n"
+        "`!token YOUR_TOKEN` - Save your user token\n"
+        "`!removetoken` - Remove your token\n"
+        "`!checktoken` - Check saved token\n\n"
+        "**Streaming:**\n"
+        "`!join` - Join voice as yourself\n"
+        "`!leave` - Leave voice\n"
+        "`!watch movie_name` - Find streaming links\n"
+        "`!search query` - Search FMHY\n"
+        "`!random` - Random streaming site\n\n"
+        "**Info:**\n"
+        "`!stats` - API stats\n"
+        "`!tokens` - View all tokens (admin)\n"
+        "`!help` - Show this message"
+    )
 
 if __name__ == "__main__":
     if not BOT_TOKEN:
