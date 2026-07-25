@@ -203,11 +203,12 @@ class Watch(commands.Cog):
         guild_id = interaction.guild_id
         
         if guild_id in self.active_streams:
-            await interaction.followup.send(
-                "⚠️ Already streaming in this server! Use `/stop` first.",
-                ephemeral=True
-            )
-            return
+            old = self.active_streams.pop(guild_id)
+            try:
+                if old["voice_client"].is_connected():
+                    await old["voice_client"].disconnect()
+            except:
+                pass
         
         try:
             voice_client = await voice_channel.connect()
