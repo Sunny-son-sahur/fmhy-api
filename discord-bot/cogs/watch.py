@@ -215,17 +215,23 @@ class Watch(commands.Cog):
                 embed = discord.Embed(
                     title=f"🎬 Playing: {title}",
                     description=f"**Channel:** {voice_channel.name}",
-                    color=discord.Color.blue()
+                    color=discord.Color.green()
                 )
                 await interaction.followup.send(embed=embed)
                 await self._start_stream(interaction, voice_channel, video_url)
             else:
-                # If extraction fails, just use the original URL
+                # If extraction fails, use screen share mode
                 embed = discord.Embed(
-                    title="🎬 Opening Stream",
-                    description=f"**URL:** {url}\n**Channel:** {voice_channel.name}\n\n⚠️ Couldn't extract video directly. Open the URL in your browser and share your screen.",
-                    color=discord.Color.orange()
+                    title="📺 Screen Share Mode",
+                    description=f"**URL:** {url}\n**Channel:** {voice_channel.name}",
+                    color=discord.Color.blue()
                 )
+                embed.add_field(
+                    name="How to watch",
+                    value="1. Bot joined the voice channel\n2. Open the URL in your browser\n3. Click 'Screen Share' in Discord\n4. Share your browser window",
+                    inline=False
+                )
+                embed.set_footer(text="yt-dlp can't extract this site - screen share is the way to go")
                 await interaction.followup.send(embed=embed)
                 await self._start_stream(interaction, voice_channel, url)
             return
